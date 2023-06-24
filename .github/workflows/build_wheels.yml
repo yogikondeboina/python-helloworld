@@ -1,20 +1,68 @@
-name: Trigger wheel build
+# name: Trigger wheel build
+
+# on:
+#   push:
+#     branches: [main, master, 'release*']
+#     tags: ['*']
+
+# jobs:
+#   build-wheels:
+#     if: github.repository == 'python/mypy'
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v3
+#       - uses: actions/setup-python@v4
+#         with:
+#           python-version: '3.7'
+#       - name: Trigger script
+#         env:
+#           WHEELS_PUSH_TOKEN: ${{ secrets.WHEELS_PUSH_TOKEN }}
+#         run: ./misc/trigger_wheel_build.sh
+
+
+name: Deploy Python project to Azure Function App
 
 on:
   push:
-    branches: [main, master, 'release*']
-    tags: ['*']
+    branches: ["master"]
+
+env:
+  #AZURE_FUNCTIONAPP_NAME: 'fnappfn'   # set this to your function app name on Azure
+  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'       # set this to the path to your function app project, defaults to the repository root
+  PYTHON_VERSION: '3.2'                     # set this to the python version to use (e.g. '3.6', '3.7', '3.8')
 
 jobs:
-  build-wheels:
-    if: github.repository == 'python/mypy'
+  build-and-deploy:
     runs-on: ubuntu-latest
+    #environment: dev
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.7'
-      - name: Trigger script
-        env:
-          WHEELS_PUSH_TOKEN: ${{ secrets.WHEELS_PUSH_TOKEN }}
-        run: ./misc/trigger_wheel_build.sh
+    - name: 'Checkout GitHub Action'
+      uses: actions/checkout@v3
+
+    # If you want to use Azure RBAC instead of Publish Profile, then uncomment the task below
+    - name: 'Login via Azure CLI'
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_RBAC_CREDENTIALS }} # set up AZURE_RBAC_CREDENTIALS secrets in your repository
+
+    - name: Setup Python ${{ env.PYTHON_VERSION }} Environment
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: 'Resolve Project Dependencies Using Pip'
+      shell: bash
+      run: |
+        pushd './${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}'
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+        popd
+    - name: 'Run Azure Functions Action'
+      uses: Azure/functions-action@v1
+      id: fa
+      with:
+        app-name: fnappfn
+        package: ${{ env.AZURE_FUNCTIONAPP_PACKAGE_PATH }}
+        #publish-profile: ${{ secrets.AZURE_FUNCTIONAPP_PUBLISH_PROFILE }} # Remove publish-profile to use Azure RBAC
+        scm-do-build-during-deployment: true
+        enable-oryx-build: true
